@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.1.0 - 2026-11-17 (tested in game: TEST-RESULT-0.1.0.txt)
+### Added (later, 2026-11-17)
+- Config files follow NorseManifest: files of switched-off packs are skipped, the rest are read in pack load order, loose files last; the framework ships its own manifest (package/NorsePacks).
 ### Added
 - Rule files in `distributions\*.ini`: `List = value | names | folders | field filters | chance`, `[Class]` sections
   (default CombatUnit), a leading `-` on the value removes it.
