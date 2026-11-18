@@ -226,6 +226,7 @@ namespace
             }
             NRN_INFO("%s: %s.%s %s %s (%zu entries)", r.where.c_str(), Narrow(name).c_str(), Narrow(r.field).c_str(), r.remove ? "-" : "+",
                      Narrow(ShortName(want)).c_str(), now);
+            RecordWrite(obj, p, ptr, text, name + L"." + r.field); // re-imported at a map load if its asset was freed (refinement)
             ++t.changed;
         }
     }
@@ -321,6 +322,7 @@ class NorseDistributor : public RC::CppUserModBase
             RC::Unreal::Hook::RegisterInitGameStatePostCallback([](RC::Unreal::AGameModeBase*) {
                 try
                 {
+                    RecheckWrites("map load"); // before the pass, which exports first
                     if (g_cfg.ApplyOnMapLoad) ApplyAll("map load");
                 }
                 catch (...)

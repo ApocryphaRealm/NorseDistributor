@@ -11,3 +11,6 @@
   archetype), a fixed per-unit-type chance.
 - Applied at every map load; console `nd.reload`, `nd.apply`, `nd.dump <object path>`. One log line per change and a
   summary per rule; rules already satisfied change nothing.
+
+### Changed (2026-11-18, refinement)
+- Asset references it writes are recorded and re-imported at a map load if their asset is no longer loaded (soft references skipped).
