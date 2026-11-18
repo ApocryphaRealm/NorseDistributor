@@ -14,3 +14,6 @@
 
 ### Changed (2026-11-18, refinement)
 - Asset references it writes are recorded and re-imported at a map load if their asset is no longer loaded (soft references skipped).
+
+### Added (2026-11-18)
+- [Unit] sections: rules for live units, the player's party too (not built from CombatUnit assets) - a When line (NorseConditions) picks the units, list fields of each UnitComponent are edited, then InitializePassives + UpdateActiveAbilities re-arm them; 2 s after each map load and by nd.apply. Tested: docs/LIVE-LAYER-TEST.txt.

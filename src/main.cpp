@@ -18,6 +18,7 @@
 #include "NorseFilters.hpp"
 
 #include <map>
+#include <set>
 
 namespace fs = std::filesystem;
 using namespace nrn;
@@ -65,6 +66,7 @@ namespace
     struct Rule
     {
         std::wstring cls, field, value;
+        std::wstring when; // [Unit] sections: a NorseConditions condition about the live unit (refinement 2026-11-18)
         bool remove = false;
         Filters f; // NorseFilters.hpp
         std::string where;
@@ -89,7 +91,7 @@ namespace
         }
         for (const auto& f : files)
         {
-            std::wstring cls = L"CombatUnit";
+            std::wstring cls = L"CombatUnit", when;
             int n = 0;
             for (const auto& raw : ReadLines(f))
             {
@@ -100,6 +102,12 @@ namespace
                 if (l.front() == L'[' && l.back() == L']')
                 {
                     cls = Trim(l.substr(1, l.size() - 2));
+                    when.clear();
+                    continue;
+                }
+                if (_wcsicmp(cls.c_str(), L"Unit") == 0 && _wcsnicmp(l.c_str(), L"When", 4) == 0 && l.find(L'=') != std::wstring::npos)
+                {
+                    when = Trim(l.substr(l.find(L'=') + 1));
                     continue;
                 }
                 size_t eq = l.find(L'=');
@@ -110,6 +118,7 @@ namespace
                 }
                 Rule r;
                 r.cls = cls;
+                r.when = when;
                 r.where = where;
                 r.field = Trim(l.substr(0, eq));
                 auto parts = SplitList(l.substr(eq + 1), L'|');
@@ -231,6 +240,96 @@ namespace
         }
     }
 
+    // ---- [Unit]: live units, the player's party too (refinement 2026-11-18). The party is not built from the CombatUnit
+    // assets the other rules change, so a [Unit] rule edits each live unit's UnitComponent lists (ActiveAbilities,
+    // PassiveAbilities, ...) and then has the game arm them (InitializePassives, UpdateActiveAbilities). A When line
+    // (NorseConditions, about the unit) picks the units. Run 2 s after each map load and by nd.apply.
+    using NcCompileFn = int (*)(const char*, char*, int);
+    using NcEvalFn = int (*)(int, void*, void*);
+    template <typename F>
+    F ModExport(const wchar_t* mod, const char* name)
+    {
+        HMODULE m = GetModuleHandleW((g_mod.parent_path() / mod / L"dlls" / L"main.dll").c_str());
+        return m ? reinterpret_cast<F>(GetProcAddress(m, name)) : nullptr;
+    }
+    std::map<std::wstring, int> g_conds; // condition text -> NorseConditions handle (0 = did not compile)
+
+    std::vector<UObject*> LiveUnitComponents(const std::wstring& when, int& unitsSeen)
+    {
+        std::vector<UObject*> out;
+        static NcCompileFn compile = nullptr;
+        static NcEvalFn eval = nullptr;
+        if (!compile) compile = ModExport<NcCompileFn>(L"NorseConditions", "NC_Compile");
+        if (!eval) eval = ModExport<NcEvalFn>(L"NorseConditions", "NC_Eval");
+        int cond = 0;
+        if (!when.empty())
+        {
+            auto it = g_conds.find(when);
+            if (it == g_conds.end())
+            {
+                char err[256]{};
+                cond = compile ? compile(Narrow(when).c_str(), err, sizeof(err)) : 0;
+                if (!cond) NRN_ERROR("[Unit] When = %s: %s - those rules are off", Narrow(when).c_str(), compile ? err : "NorseConditions is not loaded");
+                g_conds[when] = cond;
+            }
+            else cond = it->second;
+            if (!cond) return out;
+        }
+        std::vector<UObject*> units;
+        try
+        {
+            RC::Unreal::UObjectGlobals::FindAllOf(L"NorseCharacter_Unit", units);
+        }
+        catch (...)
+        {
+        }
+        for (UObject* u : units)
+        {
+            if (!Alive(u, IndexOf(u)) || ShortName(u->GetFullName(nullptr)).rfind(L"Default__", 0) == 0) continue;
+            ++unitsSeen;
+            if (cond && !(eval && eval(cond, u, nullptr))) continue;
+            auto** uc = Reflect::Get().Prop<UObject*>(u, L"UnitComponent");
+            if (uc && *uc) out.push_back(*uc);
+        }
+        return out;
+    }
+
+    void ApplyUnits(const char* why)
+    {
+        std::set<UObject*> touched;
+        int total = 0, rules = 0;
+        for (const Rule& r : g_rules)
+        {
+            if (_wcsicmp(r.cls.c_str(), L"Unit") != 0) continue;
+            ++rules;
+            int seen = 0;
+            std::vector<UObject*> comps = LiveUnitComponents(r.when, seen);
+            Tally t;
+            try
+            {
+                ApplyRule(r, comps, t);
+            }
+            catch (...)
+            {
+                NRN_ERROR("%s threw - skipped", r.where.c_str());
+            }
+            if (t.changed)
+                for (UObject* c : comps) touched.insert(c);
+            NRN_INFO("%s: [Unit] %s %s on %zu of %d live unit(s) (When %s) -> %d changed, %d already so", r.where.c_str(), r.remove ? "remove" : "add",
+                     Narrow(ShortName(r.value)).c_str(), comps.size(), seen, r.when.empty() ? "-" : Narrow(r.when).c_str(), t.changed, t.already);
+            total += t.changed;
+        }
+        for (UObject* c : touched)
+        {
+            Buf b;
+            Reflect::Get().Call(c, L"InitializePassives", b.b, 0, sizeof(b.b));
+            Buf b2;
+            Reflect::Get().Call(c, L"UpdateActiveAbilities", b2.b, 0, sizeof(b2.b));
+        }
+        if (rules) NRN_INFO("live units (%s): %d change(s) from %d [Unit] rule(s), %zu unit(s) re-armed", why, total, rules, touched.size());
+    }
+    ULONGLONG g_unitsAt = 0;
+
     void ApplyAll(const char* why)
     {
         // Tag: filters are answered by NorseTagger - have it tag this map's assets first (its own map-load pass may run
@@ -244,6 +343,7 @@ namespace
         int total = 0;
         for (const Rule& r : g_rules)
         {
+            if (_wcsicmp(r.cls.c_str(), L"Unit") == 0) continue; // the live layer, ApplyUnits
             auto& objs = byClass[r.cls];
             if (objs.empty())
             {
@@ -287,7 +387,11 @@ namespace
             LoadRules();
             ApplyAll("nd.reload");
         }
-        else if (cmd == L"nd.apply") ApplyAll("nd.apply");
+        else if (cmd == L"nd.apply")
+        {
+            ApplyAll("nd.apply");
+            ApplyUnits("nd.apply");
+        }
         else if (cmd == L"nd.dump" && !arg.empty()) Dump(arg, g_out);
         else NRN_WARN("unknown command - nd.reload | nd.apply | nd.dump <object path>");
         return true;
@@ -319,11 +423,25 @@ class NorseDistributor : public RC::CppUserModBase
         NRN_INFO("on_unreal_init: registering InitGameState and console callbacks");
         try
         {
+            RC::Unreal::Hook::RegisterEngineTickPreCallback([](RC::Unreal::UEngine*, float) {
+                if (!g_unitsAt || GetTickCount64() < g_unitsAt) return;
+                g_unitsAt = 0;
+                try
+                {
+                    ApplyUnits("map load");
+                }
+                catch (...)
+                {
+                    NRN_ERROR("live-unit distribution threw");
+                }
+            });
             RC::Unreal::Hook::RegisterInitGameStatePostCallback([](RC::Unreal::AGameModeBase*) {
                 try
                 {
                     RecheckWrites("map load"); // before the pass, which exports first
                     if (g_cfg.ApplyOnMapLoad) ApplyAll("map load");
+                    g_unitsAt = GetTickCount64() + 2000; // the live layer once the units exist
+                    g_conds.clear();
                 }
                 catch (...)
                 {

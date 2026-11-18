@@ -1,0 +1,7 @@
+Reason: NorseDistributor's new live-unit layer gave the player's party (When = IsAlly) an active ability and a passive on the units themselves, re-armed them through the game's own calls, and a second pass changed nothing.
+Batch B-20261118-034713-7e66, 2026-11-18 03:47-03:52 (Main Agent). One launch.
+- distributions\test-live.ini: [Unit] When = IsAlly; ActiveAbilities = ShieldSlam_Enemy; PassiveAbilities = Commander.
+- CombatTestMap, 2 s after the map load: "[Unit] add ShieldSlam_Enemy on 2 of 31 live unit(s) (When IsAlly) -> 2 changed", "[Unit] add Commander ... -> 2 changed", "live units (map load): 4 change(s) ..., 2 unit(s) re-armed" (InitializePassives + UpdateActiveAbilities on each changed UnitComponent).
+- Read-back (Lua, UnitComponent lists): 2 units carry both ShieldSlam_Enemy (active) and Commander (passive) - the two party units; e.g. BP_Metahuman_Unit_C_2147481774 "... ThorsRoar,ShieldSlam_Enemy | passives ... EquipEffect_Tier2HersirSet,Commander".
+- nd.apply: "-> 0 changed, 2 already so" for both rules.
+- Not checked: the ability being usable in a fight (the turn-based ability bar / the real-time ability keys), and the passive's effect.
