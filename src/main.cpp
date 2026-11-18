@@ -15,6 +15,7 @@
 // Applied at every map load and by the console commands nd.reload / nd.apply; nd.dump <object path> lists fields.
 #include "NorseReflect.hpp"
 #include "NorseManifest.hpp"
+#include "NorseFilters.hpp"
 
 #include <map>
 
@@ -61,52 +62,14 @@ namespace
     }
 
     // ------------------------------------------------------------------ rules
-    struct Filter
-    {
-        std::vector<std::wstring> inc, exc; // lower-case
-    };
-    struct FieldFilter
-    {
-        std::wstring field, text; // text lower-case
-        bool exclude = false;
-    };
     struct Rule
     {
         std::wstring cls, field, value;
         bool remove = false;
-        Filter names, folders;
-        std::vector<FieldFilter> fields;
-        int chance = 100;
+        Filters f; // NorseFilters.hpp
         std::string where;
     };
     std::vector<Rule> g_rules;
-
-    std::vector<std::wstring> SplitList(const std::wstring& s, wchar_t sep)
-    {
-        std::vector<std::wstring> out;
-        std::wstring cur;
-        for (wchar_t c : s)
-            if (c == sep)
-            {
-                out.push_back(Trim(cur));
-                cur.clear();
-            }
-            else cur += c;
-        out.push_back(Trim(cur));
-        return out;
-    }
-
-    Filter ParseFilter(const std::wstring& s)
-    {
-        Filter f;
-        for (auto& t : SplitList(s, L','))
-        {
-            if (t.empty() || _wcsicmp(t.c_str(), L"NONE") == 0) continue;
-            if (t[0] == L'-') f.exc.push_back(Lower(Trim(t.substr(1))));
-            else f.inc.push_back(Lower(t));
-        }
-        return f;
-    }
 
     void LoadRules()
     {
@@ -161,82 +124,14 @@ namespace
                     NRN_WARN("%s: no value to distribute - skipped", where.c_str());
                     continue;
                 }
-                if (parts.size() > 1) r.names = ParseFilter(parts[1]);
-                if (parts.size() > 2) r.folders = ParseFilter(parts[2]);
-                if (parts.size() > 3)
-                    for (auto& t : SplitList(parts[3], L','))
-                    {
-                        if (t.empty() || _wcsicmp(t.c_str(), L"NONE") == 0) continue;
-                        FieldFilter ff;
-                        if (t[0] == L'-')
-                        {
-                            ff.exclude = true;
-                            t = Trim(t.substr(1));
-                        }
-                        size_t c = t.find(L':');
-                        if (c == std::wstring::npos)
-                        {
-                            NRN_WARN("%s: field filter '%s' is not Field:text - ignored", where.c_str(), Narrow(t).c_str());
-                            continue;
-                        }
-                        ff.field = Trim(t.substr(0, c));
-                        ff.text = Lower(Trim(t.substr(c + 1)));
-                        r.fields.push_back(ff);
-                    }
-                if (parts.size() > 4 && !parts[4].empty() && _wcsicmp(parts[4].c_str(), L"NONE") != 0)
-                    r.chance = std::clamp(_wtoi(parts[4].c_str()), 0, 100);
+                if (parts.size() > 1) r.f.names = ParseFilter(parts[1]);
+                if (parts.size() > 2) r.f.folders = ParseFilter(parts[2]);
+                if (parts.size() > 3) r.f.fields = ParseFields(parts[3], where);
+                if (parts.size() > 4) r.f.chance = ParseChance(parts[4]);
                 g_rules.push_back(std::move(r));
             }
         }
         NRN_INFO("rules: %zu file(s) in %s, %zu rule(s)", files.size(), Narrow(dir.wstring()).c_str(), g_rules.size());
-    }
-
-    // ------------------------------------------------------------------ matching
-    bool Glob(const wchar_t* p, const wchar_t* s)
-    {
-        if (!*p) return !*s;
-        if (*p == L'*') return Glob(p + 1, s) || (*s && Glob(p, s + 1));
-        return *s && towlower(*p) == towlower(*s) && Glob(p + 1, s + 1);
-    }
-
-    uint32_t Fnv(const std::wstring& s)
-    {
-        uint32_t h = 2166136261u;
-        for (wchar_t c : s)
-        {
-            h ^= static_cast<uint32_t>(towlower(c));
-            h *= 16777619u;
-        }
-        return h;
-    }
-
-    // Why a unit type does not get a rule, or empty when it does.
-    std::string Rejects(const Rule& r, UObject* obj, UStruct* cls, const std::wstring& name, const std::wstring& path)
-    {
-        if (!r.names.inc.empty() && std::none_of(r.names.inc.begin(), r.names.inc.end(), [&](auto& p) { return Glob(p.c_str(), name.c_str()); }))
-            return "name";
-        if (std::any_of(r.names.exc.begin(), r.names.exc.end(), [&](auto& p) { return Glob(p.c_str(), name.c_str()); })) return "name excluded";
-        std::wstring lp = Lower(path);
-        if (!r.folders.inc.empty() && std::none_of(r.folders.inc.begin(), r.folders.inc.end(), [&](auto& t) { return lp.find(t) != std::wstring::npos; }))
-            return "folder";
-        if (std::any_of(r.folders.exc.begin(), r.folders.exc.end(), [&](auto& t) { return lp.find(t) != std::wstring::npos; }))
-            return "folder excluded";
-        bool anyInc = false, incHit = false;
-        for (const auto& ff : r.fields)
-        {
-            FProperty* p = FindProp(cls, ff.field);
-            std::wstring v = p ? Lower(Export(p, reinterpret_cast<uint8_t*>(obj) + p->GetOffset_Internal(), obj)) : L"";
-            bool has = v.find(ff.text) != std::wstring::npos;
-            if (ff.exclude && has) return "field excluded";
-            if (!ff.exclude)
-            {
-                anyInc = true;
-                incHit |= has;
-            }
-        }
-        if (anyInc && !incHit) return "field";
-        if (r.chance < 100 && static_cast<int>(Fnv(name + L"|" + r.value) % 100) >= r.chance) return "chance";
-        return {};
     }
 
     // Top-level elements of an exported array "(a,b,(c,d))".
@@ -292,7 +187,7 @@ namespace
             if (name.rfind(L"Default__", 0) == 0) continue;
             auto* cls = reinterpret_cast<UStruct*>(Reflect::Get().ClassOf(obj));
             if (!cls) continue;
-            if (!Rejects(r, obj, cls, name, path).empty())
+            if (!Rejects(r.f, obj, cls, name, path, name + L"|" + r.value).empty())
             {
                 ++t.filtered;
                 continue;
@@ -337,6 +232,13 @@ namespace
 
     void ApplyAll(const char* why)
     {
+        // Tag: filters are answered by NorseTagger - have it tag this map's assets first (its own map-load pass may run
+        // after this one)
+        if (std::any_of(g_rules.begin(), g_rules.end(), [](const Rule& r) { return r.f.UsesTags(); }))
+        {
+            if (const TaggerApi* t = Tagger()) t->Apply();
+            else NRN_WARN("Tag: filters used but NorseTagger is not loaded - those filters match nothing");
+        }
         std::map<std::wstring, std::vector<UObject*>> byClass;
         int total = 0;
         for (const Rule& r : g_rules)
