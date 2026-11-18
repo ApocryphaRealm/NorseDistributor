@@ -1,0 +1,10 @@
+# Changelog
+
+## 0.1.0 - 2026-11-17 (tested in game: TEST-RESULT-0.1.0.txt)
+### Added
+- Rule files in `distributions\*.ini`: `List = value | names | folders | field filters | chance`, `[Class]` sections
+  (default CombatUnit), a leading `-` on the value removes it.
+- Filters: names with `*` wildcards and `-` exclusions, folder text, `Field:text` on any field (faction via Profiles,
+  archetype), a fixed per-unit-type chance.
+- Applied at every map load; console `nd.reload`, `nd.apply`, `nd.dump <object path>`. One log line per change and a
+  summary per rule; rules already satisfied change nothing.

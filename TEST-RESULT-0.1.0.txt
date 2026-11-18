@@ -1,0 +1,9 @@
+Reason: NorseDistributor 0.1.0 rules add and remove abilities on unit types by name, folder, field and chance, and the live units carry the result.
+Batch B-20261117-201158-f57b, 2026-11-17 20:12-20:14 (Main Agent). One launch.
+- Main menu: 0 CombatUnit assets loaded - nothing to do (correct). CombatTestMap load: 14 loaded.
+- Rule 1 (name + folder): ShieldSlam_Enemy added to 8 unit types, 1 already had it, 5 filtered out.
+- Rule 3 (removal): Alert removed from Basic_Archer. Rule 4 (50% chance, Basic_* minus the archer): 0 rolled in, 1 already had it.
+- Rule 5 (no such list field): one warning naming the file:line and the nd.dump command.
+- Rule 2 (field filter Profiles:Outcast) matched nothing - the filter was right, the rule was wrong: Outcast types use Factions/Brigands profiles (nd.dump of Outcast_Nithing). Changed to Profiles:Brigands, nd.reload: Commander passive added to 6 types, 1 already. Re-running every rule changed nothing more ("already so").
+- Live units after prepfight (UnitComponent.ActiveAbilities): both Outcast_Nithing [Attack, Nithing_WildStrike, ShieldSlam_Enemy]; Basic_Archer [Attack, Mark, ShieldSlam_Enemy] - Alert gone. Party units are not built from CombatUnit assets (CombatUnit null) - a live-unit layer is the next step for them.
+- NorsePatcher after moving its reflection code to NorseReflect.hpp: the health patch still applied (Nithing 30, archer 23 live).
