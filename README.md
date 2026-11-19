@@ -35,3 +35,7 @@ Not yet: the player's party (not built from CombatUnit assets), and units spawne
 ## Build
 
 `xmake f -p windows -a x64 -m release --toolchain=msvc -y`, then `xmake`. Needs `../NorsePatcher` beside it.
+
+## Licence
+
+GPL-3.0-or-later (see LICENSE).
