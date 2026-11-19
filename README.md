@@ -4,7 +4,7 @@ SPID-like distribution for NORSE: Oath of Blood - a UE4SS v4.0.0 C++ mod. Rule f
 utility items to unit types (or remove them), chosen by name, folder, field content (faction, archetype) and chance.
 The game's paks are never edited; the game builds each unit from its extended unit asset.
 
-The second framework of `4. plans\norse-realtime-combat-20261116\ASSESSMENT-AND-PLAN.md` ("NorseDistributor
+The second framework of the Norse overhaul plan ("NorseDistributor
 (SPID-like)"). It shares NorsePatcher's reflection layer (`../NorsePatcher/include/NorseReflect.hpp`) and UE4SS import
 library, so each stays its own download while the code lives once.
 
